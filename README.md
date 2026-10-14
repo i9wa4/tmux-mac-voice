@@ -21,7 +21,18 @@ go run .
 
 Mac のブラウザで `http://127.0.0.1:8765` を開き、`VOICE_TOKEN` の値を接続キー欄に入れます。`VOICE_DEMO=1` は認識したテキストをそのまま読み上げる**ローカル試験専用**の返信です。Postman への配送は行いません。iPhone から試すには、Tailscale Serve でローカルゲートウェイだけを HTTPS に中継し、`VOICE_ORIGIN` をブラウザに表示される HTTPS オリジンと完全一致させます。
 
-Go の検証は `go test ./...`、ブラウザコードの構文確認は `node --check web/app.js && node --check web/worklet.js` です。Swift の音声生成は AVSpeechSynthesizer のメモリ内コールバックを使います。`say -o /dev/stdout` はこの Mac で出力できなかったため、`say` コマンドを直接使う構成にはしていません。
+Go とブラウザコードの再現可能な検証には、`flake.lock` で固定した Nix ツールチェーンを使います。macOS では次を実行します。
+
+```sh
+nix flake check --print-build-logs
+nix develop --command sh -c 'go version && node --version'
+nix develop --command sh -c 'test -z "$(gofmt -l .)"'
+nix develop --command sh -c 'go test ./... && go test -race ./...'
+nix develop --command sh -c 'node --check web/app.js && node --check web/worklet.js && node --test app_test.cjs'
+swiftc tools/tts.swift -o "$TMPDIR/tmux-mac-voice-tts"
+```
+
+`nix flake check` には Go の通常・race テストとブラウザコードの構文・単体テストを含めます。Swift ヘルパーのコンパイルは macOS の Xcode ツールチェーンで行い、GitHub Actions でも同じ構成を使います。`go.mod` の `go 1.23` は言語バージョンの下限で、実行する Go のパッチ版は `flake.lock` の nixpkgs に従います。Swift の音声生成は AVSpeechSynthesizer のメモリ内コールバックを使います。`say -o /dev/stdout` はこの Mac で出力できなかったため、`say` コマンドを直接使う構成にはしていません。
 
 ## 境界と未確認事項
 

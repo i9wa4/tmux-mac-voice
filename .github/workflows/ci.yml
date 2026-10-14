@@ -15,17 +15,19 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/setup-go@v7
+      - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31.11.1
         with:
-          go-version-file: go.mod
-      - uses: actions/setup-node@v7
-        with:
-          node-version: '24'
+          extra_nix_config: |
+            experimental-features = nix-command flakes
+      - name: Check locked flake
+        run: nix flake check --print-build-logs
+      - name: Show locked toolchain
+        run: nix develop --command sh -c 'go version && node --version'
       - name: Check Go formatting
-        run: test -z "$(gofmt -l .)"
+        run: nix develop --command bash -o pipefail -c 'gofmt -l . | awk "NR == 1 { exit 1 }"'
       - name: Test Go gateway and voice package
-        run: go test ./... && go test -race ./...
+        run: nix develop --command sh -c 'go test ./... && go test -race ./...'
       - name: Test browser code
-        run: node --check web/app.js && node --check web/worklet.js && node --test app_test.cjs
+        run: nix develop --command sh -c 'node --check web/app.js && node --check web/worklet.js && node --test app_test.cjs'
       - name: Compile macOS speech helper
         run: swiftc tools/tts.swift -o "$RUNNER_TEMP/tmux-mac-voice-tts"
