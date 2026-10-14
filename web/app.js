@@ -104,6 +104,7 @@ function onEvent(message) {
   if (message.type !== "reply" || !pending) return;
   if (message.turn_id !== pending.turnID || message.request_id !== pending.requestID ||
       message.generation !== pending.generation || !message.result_id) return;
+  if (pending.resultID) return;
   pending.resultID = message.result_id;
   gate();
   appendLine("返信", message.text);
@@ -204,5 +205,5 @@ startButton.addEventListener("click", start);
 stopButton.addEventListener("click", stop);
 document.addEventListener("visibilitychange", () => {
   if (!active) return;
-  if (document.hidden) { gate(); setStatus("画面が非表示です。再開には Stop と Start を押してください。"); }
+  if (document.hidden) stop();
 });

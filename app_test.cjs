@@ -10,28 +10,47 @@ const reply = { type: "reply", session_id: "session", turn_id: "turn", request_i
 
 function browser(decodeAudioData) {
   const sent = [];
+  const sources = [];
+  const timers = [];
   const elements = new Map();
+  const listeners = new Map();
   const document = {
     hidden: false,
     querySelector(selector) {
       if (!elements.has(selector)) elements.set(selector, { disabled: false, textContent: "",
-        addEventListener() {}, append() {} });
+        children: [], addEventListener() {}, append(child) { this.children.push(child); } });
       return elements.get(selector);
     },
     createElement() { return { textContent: "" }; },
-    addEventListener() {},
+    addEventListener(name, handler) { listeners.set(name, handler); },
   };
   const socket = { readyState: 1, send(data) { sent.push(JSON.parse(data)); }, close() {} };
   const audio = { decodeAudioData, close: async () => {},
-    createBufferSource() { throw new Error("stale playback started"); } };
-  const context = vm.createContext({ document, WebSocket: { OPEN: 1 }, atob, setTimeout,
+    createBufferSource() {
+      const source = { starts: 0, connect() {}, stop() {}, start() { this.starts++; } };
+      sources.push(source);
+      return source;
+    } };
+  const context = vm.createContext({ document, WebSocket: { OPEN: 1 }, atob,
+    setTimeout(callback) { timers.push(callback); },
     testSocket: socket, testAudio: audio, testCapture: { port: { postMessage() {} } } });
   vm.runInContext(app, context);
   vm.runInContext(`active = true; sessionID = "session"; generation = 1;
     pending = { turnID: "turn", requestID: "request", generation: 1 };
     socket = testSocket; audioContext = testAudio; capture = testCapture;`, context);
-  return { context, sent, elements };
+  return { context, sent, elements, document, listeners, sources, timers };
 }
+
+test("hiding the page ends the session before a pending reply can play", async () => {
+  const b = browser(() => Promise.resolve({}));
+  b.document.hidden = true;
+  b.listeners.get("visibilitychange")();
+  assert.equal(b.sent[0].type, "stop");
+  vm.runInContext(`onEvent(${JSON.stringify(reply)})`, b.context);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(b.sent.length, 1);
+  assert.equal(vm.runInContext("active", b.context), false);
+});
 
 test("invalid base64 aborts playback with all correlation IDs", async () => {
   const b = browser(() => Promise.resolve({}));
@@ -61,6 +80,58 @@ test("delayed decode after Stop cannot start stale playback", async () => {
   assert.equal(b.sent[0].type, "abort");
   assert.equal(b.sent[0].result_id, "result");
   assert.equal(b.sent[1].type, "stop");
+  assert.equal(b.sources.length, 0);
+});
+
+test("exact and conflicting duplicate replies have one playback and immutable first result", async () => {
+  let resolveDecode;
+  let decodes = 0;
+  const b = browser(() => {
+    decodes++;
+    return new Promise(resolve => { resolveDecode = resolve; });
+  });
+  const conflicting = { ...reply, result_id: "other-result", text: "別の返事" };
+  vm.runInContext(`onEvent(${JSON.stringify(reply)})`, b.context);
+  vm.runInContext(`onEvent(${JSON.stringify(reply)})`, b.context);
+  vm.runInContext(`onEvent(${JSON.stringify(conflicting)})`, b.context);
+  assert.equal(b.elements.get("#history").children.length, 1);
+  assert.equal(decodes, 1);
+  assert.equal(vm.runInContext("pending.resultID", b.context), "result");
+  resolveDecode({});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(b.sources.length, 1);
+  assert.equal(b.sources[0].starts, 1);
+  vm.runInContext(`onEvent(${JSON.stringify(conflicting)})`, b.context);
+  assert.equal(b.elements.get("#history").children.length, 1);
+  assert.equal(decodes, 1);
+  assert.equal(vm.runInContext("pending.resultID", b.context), "result");
+  b.sources[0].onended();
+  assert.equal(b.timers.length, 1);
+  b.timers.shift()();
+  assert.deepEqual(b.sent.map(message => message.type), ["played"]);
+  assert.equal(b.sent[0].result_id, "result");
+});
+
+test("duplicate replies and deferred decode stay silent after Stop", async () => {
+  let resolveDecode;
+  let decodes = 0;
+  const b = browser(() => {
+    decodes++;
+    return new Promise(resolve => { resolveDecode = resolve; });
+  });
+  vm.runInContext(`onEvent(${JSON.stringify(reply)})`, b.context);
+  vm.runInContext(`onEvent(${JSON.stringify({ ...reply, result_id: "other-result" })})`, b.context);
+  vm.runInContext("stop()", b.context);
+  const sentAtStop = b.sent.length;
+  vm.runInContext(`onEvent(${JSON.stringify(reply)})`, b.context);
+  resolveDecode({});
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(decodes, 1);
+  assert.equal(b.elements.get("#history").children.length, 1);
+  assert.equal(b.sources.length, 0);
+  assert.equal(b.timers.length, 0);
+  assert.equal(b.sent.length, sentAtStop);
+  assert.deepEqual(b.sent.map(message => message.type), ["abort", "stop"]);
 });
 
 test("worklet credit exhaustion overflows once and pause/resume resets capture", () => {
