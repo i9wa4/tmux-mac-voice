@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mac voice</title>
+<style>
+  body { font: 1.1rem system-ui, sans-serif; max-width: 36rem; margin: 2rem auto; padding: 0 1rem; line-height: 1.6; }
+  button, input { font: inherit; padding: .6rem; }
+  input { width: 100%; box-sizing: border-box; }
+  button { min-width: 7rem; }
+  #history { white-space: pre-wrap; overflow-wrap: anywhere; }
+</style>
+<h1>Mac voice</h1>
+<label for="token">接続キー</label>
+<input id="token" type="password" autocomplete="off" spellcheck="false">
+<p><button id="start">Start</button> <button id="stop" disabled>Stop</button></p>
+<p id="status" role="status">停止中</p>
+<div id="history" aria-live="polite"></div>
+<script type="module" src="/app.js"></script>
+</html>
